@@ -14,10 +14,11 @@ import (
 
 // ServerConfig defines HTTP server settings.
 type ServerConfig struct {
-	Port           int      `yaml:"port"`
-	APIKey         string   `yaml:"api_key"` // Optional router key
-	CORSOrigins    []string `yaml:"cors_origins"`
-	TimeoutSeconds int      `yaml:"timeout_seconds"`
+	Port                int      `yaml:"port"`
+	APIKey              string   `yaml:"api_key"` // Optional router key
+	CORSOrigins         []string `yaml:"cors_origins"`
+	TimeoutSeconds      int      `yaml:"timeout_seconds"`
+	ReadLoopRepetitions int      `yaml:"read_loop_repetitions"` // 0 disables the Anthropic Read loop guard
 }
 
 // ProviderConfig defines configuration for an upstream LLM provider.

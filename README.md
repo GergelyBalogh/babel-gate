@@ -442,11 +442,22 @@ Base64 images inside Anthropic tool results are preserved as multimodal content.
 
 A complete template is available in [`config.example.yaml`](config.example.yaml):
 
+For Claude Code through the Anthropic Messages endpoint, set
+`server.read_loop_repetitions: 3` to reject a model request when its recent
+conversation contains three identical `Read` calls or three repetitions of a
+two- or three-call `Read` cycle. The guard is disabled when omitted. A new user
+instruction or another tool call resets the sequence. BabelGate returns
+an HTTP 400 before calling the upstream provider; stop the run and inspect
+the loop if this happens. This guard cannot see tool calls that a client removed
+from its request history during compaction, and it does not apply to OpenAI or
+Google protocol clients.
+
 ```yaml
 server:
   port: 8080               # Port to listen on (or use $PORT / -port flag)
   api_key: ""              # Optional: require clients to provide this key (Bearer / x-api-key)
   timeout_seconds: 120     # Incoming request read timeout; no absolute streaming write deadline
+  # read_loop_repetitions: 3 # Optional Anthropic Read-loop guard; disabled when omitted
   cors_origins: ["*"]      # Allowed CORS origins
 
 # Upstream LLM Providers

@@ -43,6 +43,7 @@ func NewServer(cfg *config.Config, engine *router.Engine) *Server {
 	}
 
 	anthropicHandler := inbound.NewAnthropicHandler(engine, catalog, sessions)
+	anthropicHandler.SetReadLoopRepetitions(cfg.Server.ReadLoopRepetitions)
 	openaiHandler := inbound.NewOpenAIHandler(engine, catalog, sessions)
 	googleHandler := inbound.NewGoogleHandler(engine, catalog, sessions)
 	dashboardHandler := web.NewDashboardHandler(engine, catalog, sessions, metricsStore)

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -21,9 +22,10 @@ import (
 )
 
 type AnthropicHandler struct {
-	engine   *router.Engine
-	catalog  *router.Catalog
-	sessions *session.Manager
+	engine              *router.Engine
+	catalog             *router.Catalog
+	sessions            *session.Manager
+	readLoopRepetitions int
 }
 
 func NewAnthropicHandler(engine *router.Engine, catalog *router.Catalog, sessions *session.Manager) *AnthropicHandler {
@@ -32,6 +34,12 @@ func NewAnthropicHandler(engine *router.Engine, catalog *router.Catalog, session
 		catalog:  catalog,
 		sessions: sessions,
 	}
+}
+
+// SetReadLoopRepetitions enables the request-history guard when repetitions is
+// at least two. Zero disables it, preserving existing behavior by default.
+func (h *AnthropicHandler) SetReadLoopRepetitions(repetitions int) {
+	h.readLoopRepetitions = repetitions
 }
 
 func anthropicError(err error) (int, string, string) {
@@ -100,6 +108,12 @@ func (h *AnthropicHandler) HandleMessages(w http.ResponseWriter, r *http.Request
 	var req anthropic.MessageRequest
 	if err := json.Unmarshal(bodyBytes, &req); err != nil {
 		http.Error(w, fmt.Sprintf("invalid json: %v", err), http.StatusBadRequest)
+		return
+	}
+	if cycleLength := detectReadLoop(req.Messages, h.readLoopRepetitions); cycleLength > 0 {
+		log.Printf("[LOOP] blocked Anthropic request for model %q after %d repeated Read cycle(s) of length %d", req.Model, h.readLoopRepetitions, cycleLength)
+		writeAnthropicErrorResponse(w, http.StatusBadRequest, "invalid_request_error",
+			"repeated Read tool calls detected; stop this run and review the file-reading loop")
 		return
 	}
 

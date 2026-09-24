@@ -7,6 +7,10 @@ server:
   # Maximum time allowed to read an incoming request. Streaming responses do
   # not have an absolute write deadline.
   timeout_seconds: 120
+  # Optional safety guard for Claude Code: reject an Anthropic model request
+  # after the same Read call, or a short Read cycle, repeats 3 times.
+  # 0 disables the guard. Rejections happen before contacting the provider.
+  # read_loop_repetitions: 3
   cors_origins:
     - "*"
 
