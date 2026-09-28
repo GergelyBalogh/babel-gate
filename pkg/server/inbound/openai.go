@@ -59,6 +59,10 @@ func (h *OpenAIHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Req
 	if sess != nil {
 		canonReq.SessionID = sess.ID
 	}
+	if r, err = applySmart(h.engine, w, r, canonReq); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 
 	if !req.Stream {
 		h.handleNonStreaming(w, r, canonReq, sess, startTime)

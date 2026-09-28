@@ -68,5 +68,26 @@ providers:
 # routing:
 #   routes:
 #     "fast": "google/gemini-2.5-flash"
-#     "smart": "copilot/gpt-4o"
+#     "strong": "copilot/gpt-4o"
 #     "claude-3-7-sonnet": "copilot/gpt-4o"
+
+# Optional: the virtual "smart" model. Each request for model "smart" is rated
+# simple, medium, complex or reasoning and sent to that tier's targets in order;
+# a failing target (rate limit, quota, outage) falls through to the next one and
+# is paused for cooldown_seconds. Tool-result follow-ups keep the tier of the
+# user turn that started them, so an agent loop never switches models mid-turn.
+# smart:
+#   classifier:
+#     mode: heuristic            # heuristic | laya (see deploy/laya) | http
+#     # url: http://localhost:8000 # laya-serve base URL, or the http classifier endpoint
+#     # api_key: ${LAYA_API_KEY}   # laya only, if the server requires a bearer token
+#     # model: multilingual        # laya only: english | multilingual | typed-decisions
+#     # timeout_ms: 1000           # defaults: laya 1000, http 400
+#     # min_confidence: 0.6      # below this, the heuristic decides
+#   sticky: turn                 # turn | none
+#   cooldown_seconds: 60
+#   tiers:
+#     simple:    ["onprem/gpt-oss-120b"]
+#     medium:    ["copilot/claude-haiku-4-5", "sdc/gpt-6-luna"]
+#     complex:   ["copilot/claude-sonnet-5", "sdc/gpt-6-sol"]
+#     reasoning: ["copilot/claude-opus-5-5", "sdc/claude-opus-5-5"]

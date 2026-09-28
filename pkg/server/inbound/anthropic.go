@@ -125,6 +125,22 @@ func (h *AnthropicHandler) HandleMessages(w http.ResponseWriter, r *http.Request
 
 	sess := ResolveSession(h.sessions, r)
 
+	if h.engine.IsSmartModel(req.Model) {
+		smartReq, err := anthropic.FromAnthropicRequest(&req)
+		if err != nil {
+			writeAnthropicErrorResponse(w, http.StatusBadRequest, "invalid_request_error", "invalid request: "+err.Error())
+			return
+		}
+		if sess != nil {
+			smartReq.SessionID = sess.ID
+		}
+		if r, err = applySmart(h.engine, w, r, smartReq); err != nil {
+			writeAnthropicErrorResponse(w, http.StatusServiceUnavailable, "overloaded_error", err.Error())
+			return
+		}
+		req.Model = smartReq.Model
+	}
+
 	// Direct 1:1 passthrough when routing Anthropic client protocol to an Anthropic upstream provider
 	if route, err := h.engine.ResolveModel(req.Model); err == nil && route != nil && route.Provider.Type() == "anthropic" {
 		if anthClient, ok := route.Provider.(*anthropic.Client); ok {

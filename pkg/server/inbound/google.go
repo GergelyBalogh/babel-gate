@@ -80,6 +80,10 @@ func (h *GoogleHandler) HandleGenerateContent(w http.ResponseWriter, r *http.Req
 	if sess != nil {
 		canonReq.SessionID = sess.ID
 	}
+	if r, err = applySmart(h.engine, w, r, canonReq); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	}
 	estInTokens := session.EstimateRequestTokens(canonReq)
 	prov, trackingModel := h.engine.ResolveTrackingModel(canonReq.Model)
 
@@ -188,6 +192,10 @@ func (h *GoogleHandler) HandleStreamGenerateContent(w http.ResponseWriter, r *ht
 	sess := ResolveSession(h.sessions, r)
 	if sess != nil {
 		canonReq.SessionID = sess.ID
+	}
+	if r, err = applySmart(h.engine, w, r, canonReq); err != nil {
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
 	}
 	estInTokens := session.EstimateRequestTokens(canonReq)
 	prov, trackingModel := h.engine.ResolveTrackingModel(canonReq.Model)

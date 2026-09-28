@@ -45,6 +45,10 @@ func (h *OpenAIHandler) HandleResponses(w http.ResponseWriter, r *http.Request) 
 	if sess != nil {
 		canonReq.SessionID = sess.ID
 	}
+	if r, err = applySmart(h.engine, w, r, canonReq); err != nil {
+		writeResponsesError(w, http.StatusServiceUnavailable, "server_error", err.Error())
+		return
+	}
 	if req.Stream {
 		h.handleResponsesStreaming(w, r, canonReq, &req, sess, startTime)
 		return

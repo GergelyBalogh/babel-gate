@@ -1,0 +1,19 @@
+# docker compose -f deploy/laya/compose.yaml up -d
+# Then set smart.classifier.mode: laya and url: http://localhost:8000 in config.yaml.
+services:
+  laya:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      # english (ModernBERT-large) or multilingual (mmBERT, better for German prompts)
+      LAYA_MODELS: ${LAYA_MODELS:-english}
+      LAYA_THREADS: ${LAYA_THREADS:-4}
+      # Optional; must match smart.classifier.api_key in BabelGate.
+      LAYA_API_KEY: ${LAYA_API_KEY:-}
+    volumes:
+      - laya-models:/models
+    restart: unless-stopped
+
+volumes:
+  laya-models:

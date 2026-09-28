@@ -95,6 +95,16 @@ func (c *Catalog) ListAll(ctx context.Context) ([]CatalogModel, error) {
 		}
 	}
 
+	if c.engine.smart != nil && !seen["router-alias:smart"] {
+		results = append(results, CatalogModel{
+			ID:          "smart",
+			DisplayName: "smart (tier-based routing)",
+			Provider:    "router-alias",
+			Type:        "alias",
+			Description: "Classifies each request as simple, medium, complex or reasoning and routes it to that tier's targets",
+		})
+	}
+
 	// 4. Sort results by provider priority ascending, then provider name, then model name
 	sort.Slice(results, func(i, j int) bool {
 		pI := 999

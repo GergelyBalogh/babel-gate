@@ -234,3 +234,27 @@ func (t *StreamUsageTracker) Finalize(fallbackOutTokens int) {
 		t.TotalTokens = t.InTokens + t.OutTokens
 	}
 }
+
+// applySmart resolves the virtual smart model to a concrete target before
+// routing. The returned request carries the tier's fallback chain in its
+// context; callers must use it for the upstream call. Non-smart requests are
+// returned unchanged.
+func applySmart(engine *router.Engine, w http.ResponseWriter, r *http.Request, req *canonical.CanonicalRequest) (*http.Request, error) {
+	if !engine.IsSmartModel(req.Model) {
+		return r, nil
+	}
+	requested := req.Model
+	ctx, decision, err := engine.ApplySmart(r.Context(), req)
+	if decision != nil {
+		w.Header().Set("X-BabelGate-Tier", decision.Tier.String())
+	}
+	if err != nil {
+		return r, err
+	}
+	w.Header().Set("X-BabelGate-Target", req.Model)
+	if tr := trace.FromContext(ctx); tr != nil {
+		prov, endpoint, targetModel := engine.ResolveRouteInfo(req.Model)
+		tr.SetRoute(requested, prov, endpoint, targetModel)
+	}
+	return r.WithContext(ctx), nil
+}

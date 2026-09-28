@@ -42,6 +42,35 @@ type RoutingConfig struct {
 	Fallbacks map[string][]string `yaml:"fallbacks" json:"fallbacks"`
 }
 
+// SmartConfig enables the virtual "smart" model, which classifies each
+// request into a complexity tier and tries that tier's targets in order.
+type SmartConfig struct {
+	Classifier      ClassifierConfig    `yaml:"classifier"`
+	Sticky          string              `yaml:"sticky"`           // "turn" (default) or "none"
+	CooldownSeconds int                 `yaml:"cooldown_seconds"` // provider pause after 429/5xx, defaults to 60
+	Tiers           map[string][]string `yaml:"tiers"`            // simple, medium, complex, reasoning -> ordered "provider/model" targets
+}
+
+// ClassifierConfig selects how smart requests are assigned a tier.
+type ClassifierConfig struct {
+	Mode          string  `yaml:"mode"`           // "heuristic" (default), "http" or "laya"
+	URL           string  `yaml:"url"`            // http classifier endpoint or laya-serve base URL
+	APIKey        string  `yaml:"api_key"`        // laya: bearer token (LAYA_API_KEY of the server)
+	Model         string  `yaml:"model"`          // laya: english, multilingual or typed-decisions; empty lets Laya choose
+	TimeoutMs     int     `yaml:"timeout_ms"`     // defaults to 400 (http) or 1000 (laya)
+	MinConfidence float64 `yaml:"min_confidence"` // below this the heuristic decides, defaults to 0.6
+}
+
+// Enabled reports whether any smart tier is configured.
+func (s SmartConfig) Enabled() bool {
+	for _, targets := range s.Tiers {
+		if len(targets) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // DatabaseConfig defines settings for persistent metrics storage.
 type DatabaseConfig struct {
 	Path          string `yaml:"path"`           // Path to SQLite database, defaults to "data/metrics.db"
@@ -60,6 +89,7 @@ type Config struct {
 	Server     ServerConfig              `yaml:"server"`
 	Providers  map[string]ProviderConfig `yaml:"providers"`
 	Routing    RoutingConfig             `yaml:"routing"`
+	Smart      SmartConfig               `yaml:"smart"`
 	Database   DatabaseConfig            `yaml:"database"`
 	Logging    LoggingConfig             `yaml:"logging"`
 	SourcePath string                    `yaml:"-"`

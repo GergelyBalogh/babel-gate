@@ -29,3 +29,5 @@ data/
 # Logs
 logs/
 *.log
+# Laya sidecar virtualenv
+deploy/laya/.venv/

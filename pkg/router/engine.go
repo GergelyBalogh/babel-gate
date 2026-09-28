@@ -17,6 +17,7 @@ import (
 	"github.com/vogler75/babel-gate/pkg/providers/google"
 	"github.com/vogler75/babel-gate/pkg/providers/openai"
 	"github.com/vogler75/babel-gate/pkg/server/trace"
+	"github.com/vogler75/babel-gate/pkg/smart"
 )
 
 type ResolvedRoute struct {
@@ -31,6 +32,10 @@ type Engine struct {
 	cfg            *config.Config
 	providers      map[string]providers.Provider
 	providerModels map[string]map[string]bool // providerName -> lowerModelID -> true
+
+	smart         *smart.Router
+	smartCooldown time.Duration
+	cooldowns     map[string]time.Time // providerName -> skip in smart chains until
 }
 
 func NewEngine(cfg *config.Config) (*Engine, error) {
@@ -38,6 +43,28 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		cfg:            cfg,
 		providers:      make(map[string]providers.Provider),
 		providerModels: make(map[string]map[string]bool),
+		cooldowns:      make(map[string]time.Time),
+	}
+
+	smartRouter, err := smart.NewRouter(cfg.Smart)
+	if err != nil {
+		return nil, err
+	}
+	if smartRouter != nil {
+		for tier, targets := range cfg.Smart.Tiers {
+			for _, target := range targets {
+				if slash := strings.Index(target, "/"); slash > 0 {
+					if _, ok := cfg.Providers[target[:slash]]; !ok {
+						return nil, fmt.Errorf("smart tier %q references unknown provider %q", tier, target[:slash])
+					}
+				}
+			}
+		}
+		e.smart = smartRouter
+		e.smartCooldown = time.Duration(cfg.Smart.CooldownSeconds) * time.Second
+		if e.smartCooldown <= 0 {
+			e.smartCooldown = 60 * time.Second
+		}
 	}
 
 	for name, pcfg := range cfg.Providers {
@@ -341,76 +368,68 @@ func (e *Engine) CountTokens(ctx context.Context, req *canonical.CanonicalReques
 
 // Execute routes a non-streaming canonical request to the appropriate upstream provider.
 func (e *Engine) Execute(ctx context.Context, req *canonical.CanonicalRequest) (*canonical.CanonicalResponse, error) {
-	route, err := e.ResolveModel(req.Model)
-	if err != nil {
-		return nil, err
-	}
-
-	targetReq := *req
-	targetReq.Model = route.TargetModel
-
-	resp, err := route.Provider.Execute(ctx, &targetReq)
-	if err == nil {
-		return resp, nil
-	}
-
-	// Check fallbacks
-	if fallbacks, ok := e.cfg.Routing.Fallbacks[req.Model]; ok {
-		for _, fb := range fallbacks {
-			fbRoute, fbErr := e.ResolveModel(fb)
-			if fbErr != nil {
-				continue
-			}
-			targetReq.Model = fbRoute.TargetModel
-			fbResp, err2 := fbRoute.Provider.Execute(ctx, &targetReq)
-			if err2 == nil {
-				if tr := trace.FromContext(ctx); tr != nil {
-					tr.AddNote(fmt.Sprintf("fallback to %s", fb))
-					tr.SetRoute(req.Model, fbRoute.Provider.Name(), fbRoute.Provider.Endpoint(), fbRoute.TargetModel)
-				}
-				return fbResp, nil
-			}
-		}
-	}
-
-	return nil, err
+	return attempt(e, ctx, req, func(p providers.Provider, r *canonical.CanonicalRequest) (*canonical.CanonicalResponse, error) {
+		return p.Execute(ctx, r)
+	})
 }
 
 // Stream routes a streaming canonical request to the appropriate upstream provider.
+// Fallbacks apply only when the upstream call fails before the stream opens.
 func (e *Engine) Stream(ctx context.Context, req *canonical.CanonicalRequest) (<-chan canonical.CanonicalEvent, error) {
+	return attempt(e, ctx, req, func(p providers.Provider, r *canonical.CanonicalRequest) (<-chan canonical.CanonicalEvent, error) {
+		return p.Stream(ctx, r)
+	})
+}
+
+// attempt calls the resolved route and, when it errors, each fallback in
+// order. Smart requests use the chain stored by ApplySmart; other requests
+// use routing.fallbacks.
+func attempt[T any](e *Engine, ctx context.Context, req *canonical.CanonicalRequest, call func(providers.Provider, *canonical.CanonicalRequest) (T, error)) (T, error) {
+	var zero T
 	route, err := e.ResolveModel(req.Model)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
+	chain, isSmart := smartChainFromContext(ctx)
 	targetReq := *req
 	targetReq.Model = route.TargetModel
 
-	ch, err := route.Provider.Stream(ctx, &targetReq)
+	res, err := call(route.Provider, &targetReq)
 	if err == nil {
-		return ch, nil
+		return res, nil
+	}
+	if isSmart {
+		e.noteSmartFailure(route.Provider.Name(), err)
+	} else {
+		e.mu.RLock()
+		chain = append([]string(nil), e.cfg.Routing.Fallbacks[req.Model]...)
+		e.mu.RUnlock()
 	}
 
-	// Check fallbacks
-	if fallbacks, ok := e.cfg.Routing.Fallbacks[req.Model]; ok {
-		for _, fb := range fallbacks {
-			fbRoute, fbErr := e.ResolveModel(fb)
-			if fbErr != nil {
-				continue
+	for _, fb := range chain {
+		if ctx.Err() != nil {
+			break
+		}
+		fbRoute, fbErr := e.ResolveModel(fb)
+		if fbErr != nil {
+			continue
+		}
+		targetReq.Model = fbRoute.TargetModel
+		fbRes, fbErr := call(fbRoute.Provider, &targetReq)
+		if fbErr == nil {
+			if tr := trace.FromContext(ctx); tr != nil {
+				tr.AddNote(fmt.Sprintf("fallback to %s", fb))
+				tr.SetRoute(req.Model, fbRoute.Provider.Name(), fbRoute.Provider.Endpoint(), fbRoute.TargetModel)
 			}
-			targetReq.Model = fbRoute.TargetModel
-			fbCh, err2 := fbRoute.Provider.Stream(ctx, &targetReq)
-			if err2 == nil {
-				if tr := trace.FromContext(ctx); tr != nil {
-					tr.AddNote(fmt.Sprintf("fallback to %s", fb))
-					tr.SetRoute(req.Model, fbRoute.Provider.Name(), fbRoute.Provider.Endpoint(), fbRoute.TargetModel)
-				}
-				return fbCh, nil
-			}
+			return fbRes, nil
+		}
+		if isSmart {
+			e.noteSmartFailure(fbRoute.Provider.Name(), fbErr)
 		}
 	}
 
-	return nil, err
+	return zero, err
 }
 
 // GetProviders returns all registered providers.
