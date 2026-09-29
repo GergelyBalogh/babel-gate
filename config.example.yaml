@@ -64,6 +64,47 @@ providers:
     # 3. GITHUB_TOKEN or COPILOT_API_KEY env var
     # api_key: "${GITHUB_TOKEN}"
 
+  # Siemens SDC LLM Gateway (Anthropic Messages API; key sent as x-api-key and Bearer)
+  # sdc:
+  #   type: anthropic
+  #   enabled: true
+  #   base_url: "https://llm.sdc.siemens.cloud"
+  #   api_key: "${SDC_API_KEY}"
+
+  # Siemens on-prem models (OpenAI-compatible)
+  # onprem:
+  #   type: openai
+  #   enabled: true
+  #   base_url: "https://api.siemens.com/llm/v1"
+  #   api_key: "${SIAK_KEY}"
+
+# Optional: smart routing. Exposes a virtual model (default "smart-router") that
+# classifies each request into SIMPLE / MEDIUM / COMPLEX / REASONING and sends it
+# to the first healthy target of that tier. Tiers with no targets climb to the
+# next higher tier. Targets are "provider/model".
+# smart:
+#   enabled: true
+#   model: smart-router
+#   default_tier: COMPLEX            # used when no classifier is confident
+#   # min_tier: MEDIUM               # never route below this tier
+#   session_affinity_ttl_seconds: 3600  # a session never downgrades within the TTL
+#   allowed_fails: 2                 # consecutive errors before cooldown
+#   cooldown_seconds: 300
+#   classifier:
+#     type: auto                     # heuristic | laya | http | auto (laya if url set)
+#     url: "${LAYA_URL}"             # laya-serve base URL, e.g. http://localhost:8000
+#     # api_key: "${LAYA_API_KEY}"
+#     timeout_ms: 800
+#     min_prob: 0.40
+#   # keywords:                      # checked first; defaults include "ultrathink" -> REASONING
+#   #   - keywords: ["ultrathink", "think harder"]
+#   #     tier: REASONING
+#   tiers:
+#     SIMPLE:    ["onprem/gpt-oss-120b", "copilot/claude-haiku-4.5"]
+#     MEDIUM:    ["copilot/gpt-5-mini", "onprem/qwen-3.6-27b"]
+#     COMPLEX:   ["copilot/claude-sonnet-5", "sdc/claude-sonnet-5"]
+#     REASONING: ["copilot/claude-opus-5.5", "sdc/claude-opus-5"]
+
 # Optional: model aliases if you want custom shortcuts
 # routing:
 #   routes:

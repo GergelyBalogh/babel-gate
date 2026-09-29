@@ -17,6 +17,7 @@ import (
 	"github.com/vogler75/babel-gate/pkg/providers/google"
 	"github.com/vogler75/babel-gate/pkg/providers/openai"
 	"github.com/vogler75/babel-gate/pkg/server/trace"
+	"github.com/vogler75/babel-gate/pkg/smart"
 )
 
 type ResolvedRoute struct {
@@ -31,6 +32,7 @@ type Engine struct {
 	cfg            *config.Config
 	providers      map[string]providers.Provider
 	providerModels map[string]map[string]bool // providerName -> lowerModelID -> true
+	smart          *smart.Router
 }
 
 func NewEngine(cfg *config.Config) (*Engine, error) {
@@ -38,6 +40,9 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 		cfg:            cfg,
 		providers:      make(map[string]providers.Provider),
 		providerModels: make(map[string]map[string]bool),
+	}
+	if cfg.Smart.Enabled {
+		e.smart = smart.New(cfg.Smart, e.resolveSmartTarget)
 	}
 
 	for name, pcfg := range cfg.Providers {
@@ -215,6 +220,10 @@ func (e *Engine) ResolveModel(requestedModel string) (*ResolvedRoute, error) {
 		}
 	}
 
+	if e.smart != nil && target == e.smart.Model() {
+		return &ResolvedRoute{Provider: e.smart, TargetModel: target}, nil
+	}
+
 	// 2. Check prefix (e.g. "google/gemini-2.5-pro", "openai/gpt-4o", "anthropic/claude-3-7-sonnet")
 	if slashIdx := strings.Index(target, "/"); slashIdx != -1 {
 		providerName := target[:slashIdx]
@@ -278,6 +287,22 @@ func (e *Engine) ResolveModel(requestedModel string) (*ResolvedRoute, error) {
 	}
 
 	return nil, fmt.Errorf("unable to resolve model %q to any active provider", requestedModel)
+}
+
+func (e *Engine) resolveSmartTarget(target string) (providers.Provider, string, error) {
+	route, err := e.ResolveModel(target)
+	if err != nil {
+		return nil, "", err
+	}
+	if _, nested := route.Provider.(*smart.Router); nested {
+		return nil, "", fmt.Errorf("smart tier target %q cannot point at the smart router", target)
+	}
+	return route.Provider, route.TargetModel, nil
+}
+
+// Smart returns the smart router, or nil when smart routing is disabled.
+func (e *Engine) Smart() *smart.Router {
+	return e.smart
 }
 
 // ResolveTrackingModel returns the resolved provider name and the provider-prefixed model name.
