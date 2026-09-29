@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/vogler75/babel-gate/pkg/canonical"
+	"github.com/vogler75/babel-gate/pkg/classifier"
 	"github.com/vogler75/babel-gate/pkg/config"
 	"github.com/vogler75/babel-gate/pkg/providers"
 	"github.com/vogler75/babel-gate/pkg/providers/anthropic"
@@ -43,6 +44,7 @@ func NewEngine(cfg *config.Config) (*Engine, error) {
 	}
 	if cfg.Smart.Enabled {
 		e.smart = smart.New(cfg.Smart, e.resolveSmartTarget)
+		e.smart.SetUsageLog(cfg.Smart.UsageLog)
 	}
 
 	for name, pcfg := range cfg.Providers {
@@ -566,6 +568,40 @@ func (e *Engine) ReloadRouting() error {
 		return err
 	}
 	e.cfg.Routing = cloneRouting(routing)
+	return nil
+}
+
+// ReloadSmart re-reads the smart section of the active configuration file and
+// applies tiers, classifier, failover and budget settings to the running
+// smart router. Enabling/disabling smart routing or renaming its model still
+// requires a restart.
+func (e *Engine) ReloadSmart() error {
+	if e.smart == nil {
+		return fmt.Errorf("smart routing is not enabled")
+	}
+	e.mu.RLock()
+	path := e.cfg.SourcePath
+	e.mu.RUnlock()
+	cfg, err := config.LoadSmart(path)
+	if err != nil {
+		return err
+	}
+	if !cfg.Enabled {
+		return fmt.Errorf("disabling smart routing requires a restart")
+	}
+	if cfg.Model != e.smart.Model() {
+		return fmt.Errorf("renaming the smart model requires a restart")
+	}
+	for name := range cfg.Tiers {
+		if _, ok := classifier.ParseTier(name); !ok {
+			return fmt.Errorf("unknown smart tier %q", name)
+		}
+	}
+	e.smart.Update(cfg)
+	e.smart.SetUsageLog(cfg.UsageLog)
+	e.mu.Lock()
+	e.cfg.Smart = cfg
+	e.mu.Unlock()
 	return nil
 }
 

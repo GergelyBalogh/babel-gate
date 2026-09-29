@@ -90,6 +90,8 @@ providers:
 #   session_affinity_ttl_seconds: 3600  # a session never downgrades within the TTL
 #   allowed_fails: 2                 # consecutive errors before cooldown
 #   cooldown_seconds: 300
+#   usage_log: logs/usage.jsonl      # one JSON line per smart request (tokens, cost, latency)
+#   # Tiers, classifier and budgets hot-reload via the TUI 'r' key or POST /api/smart.
 #   classifier:
 #     type: auto                     # heuristic | laya | http | auto (laya if url set)
 #     url: "${LAYA_URL}"             # laya-serve base URL, e.g. http://localhost:8000
@@ -103,6 +105,8 @@ providers:
 #     SIMPLE:    ["onprem/gpt-oss-120b", "copilot/claude-haiku-4.5"]
 #     MEDIUM:    ["copilot/gpt-5-mini", "onprem/qwen-3.6-27b"]
 #     COMPLEX:   ["copilot/claude-sonnet-5", "sdc/claude-sonnet-5"]
+#     # Sonnet 5.5 is not yet served (Copilot: model_not_supported, SDC: 404 as of 2026-09-29).
+#     # Once live, prepend it: ["copilot/claude-sonnet-5.5", "sdc/claude-sonnet-5-5", ...]
 #     REASONING: ["copilot/claude-opus-5.5", "sdc/claude-opus-5"]
 #   # Optional local spend caps (estimates from token usage; stored in database.path).
 #   # A target whose provider has used up its share for the tier is skipped.
@@ -116,12 +120,14 @@ providers:
 #       prices:
 #         claude-opus-5.5: [4, 20, 0.2, 5]
 #         claude-sonnet-5: [3, 15, 0.3, 3.75]
+#         # claude-sonnet-5.5: [3, 15, 0.3, 3.75]   # placeholder, set real price once available
 #         claude-haiku-4.5: [1, 5, 0.1, 1.25]
 #     sdc:
 #       limit: 0                       # 0 = track spend only, never block
 #       currency: EUR
 #       prices:
 #         claude-opus-5: [4.35, 21.75, 0.435, 5.438]
+#         # claude-sonnet-5-5: [2.61, 13.05, 0.261, 3.263]   # placeholder, set real price once available
 
 # Optional: model aliases if you want custom shortcuts
 # routing:

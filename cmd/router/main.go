@@ -179,7 +179,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize routing engine: %v", err)
 	}
-	if sr := engine.Smart(); sr != nil && len(cfg.Smart.Budgets) > 0 {
+	if sr := engine.Smart(); sr != nil {
 		tracker, err := budget.Open(cfg.Database.Path, cfg.Smart.Budgets)
 		if err != nil {
 			log.Printf("[SMART] budget tracking disabled: %v", err)

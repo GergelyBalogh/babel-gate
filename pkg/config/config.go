@@ -68,6 +68,7 @@ type SmartConfig struct {
 	CooldownSeconds           int                     `yaml:"cooldown_seconds" json:"cooldown_seconds"`
 	Tiers                     map[string][]string     `yaml:"tiers" json:"tiers"`
 	Budgets                   map[string]BudgetConfig `yaml:"budgets" json:"budgets"`
+	UsageLog                  string                  `yaml:"usage_log" json:"usage_log"`
 }
 
 // BudgetConfig caps estimated spend for one provider over a rolling window.
@@ -264,6 +265,9 @@ func applySmartDefaults(s *SmartConfig) {
 	}
 	if s.CooldownSeconds <= 0 {
 		s.CooldownSeconds = 300
+	}
+	if s.UsageLog == "" {
+		s.UsageLog = "logs/usage.jsonl"
 	}
 	for name, b := range s.Budgets {
 		if b.PeriodDays <= 0 {

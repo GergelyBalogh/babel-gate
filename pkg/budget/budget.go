@@ -122,8 +122,27 @@ func period(b config.BudgetConfig) int {
 	return b.PeriodDays
 }
 
+// SetBudgets replaces the budget configuration; recorded spend is kept.
+func (t *Tracker) SetBudgets(budgets map[string]config.BudgetConfig) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.budgets = budgets
+	t.mu.Unlock()
+}
+
 // Cost estimates the price of one request from its token usage.
 func (t *Tracker) Cost(provider, model string, u canonical.Usage) float64 {
+	if t == nil {
+		return 0
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.costLocked(provider, model, u)
+}
+
+func (t *Tracker) costLocked(provider, model string, u canonical.Usage) float64 {
 	b, ok := t.budgets[provider]
 	if !ok {
 		return 0
@@ -179,6 +198,8 @@ func (t *Tracker) Allowed(provider, tier string) bool {
 	if t == nil {
 		return true
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	b, ok := t.budgets[provider]
 	if !ok || b.Limit <= 0 {
 		return true
@@ -187,22 +208,21 @@ func (t *Tracker) Allowed(provider, tier string) bool {
 	if limit <= 0 {
 		return false
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	return t.spent(provider, strings.ToUpper(tier), perTier, period(b)) < limit
 }
 
-// Record adds the estimated cost of a completed request.
-func (t *Tracker) Record(provider, model, tier string, u canonical.Usage) {
+// Record adds the estimated cost of a completed request and returns it.
+func (t *Tracker) Record(provider, model, tier string, u canonical.Usage) float64 {
 	if t == nil {
-		return
+		return 0
 	}
-	if _, ok := t.budgets[provider]; !ok {
-		return
-	}
-	cost := t.Cost(provider, model, u)
-	k := key{provider: provider, tier: strings.ToUpper(tier), day: t.now().UTC().Format(dayLayout)}
 	t.mu.Lock()
+	if _, ok := t.budgets[provider]; !ok {
+		t.mu.Unlock()
+		return 0
+	}
+	cost := t.costLocked(provider, model, u)
+	k := key{provider: provider, tier: strings.ToUpper(tier), day: t.now().UTC().Format(dayLayout)}
 	t.spend[k] += cost
 	t.mu.Unlock()
 	if t.db != nil {
@@ -210,6 +230,7 @@ func (t *Tracker) Record(provider, model, tier string, u canonical.Usage) {
 			ON CONFLICT(day, provider, tier, model) DO UPDATE SET requests = requests + 1, cost = cost + excluded.cost`,
 			k.day, provider, k.tier, model, cost)
 	}
+	return cost
 }
 
 // Status describes the budget state of one provider/tier pair.

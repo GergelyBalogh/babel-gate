@@ -2,8 +2,11 @@ package smart
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -174,6 +177,33 @@ func TestStreamRecordsUsage(t *testing.T) {
 	}
 	if tr.Allowed("onprem", "SIMPLE") {
 		t.Fatal("stream usage should be recorded")
+	}
+}
+
+func TestUsageLogAndUpdate(t *testing.T) {
+	r, provs := setup(t)
+	path := filepath.Join(t.TempDir(), "usage.jsonl")
+	r.SetUsageLog(path)
+	r.SetBudget(budget.New(map[string]config.BudgetConfig{"onprem": {DefaultPrice: []float64{1, 1}}}))
+	provs["onprem"].usage = canonical.Usage{PromptTokens: 1_000_000, CompletionTokens: 10}
+	if _, err := r.Execute(context.Background(), ask("fix typo", "")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e UsageEntry
+	if err := json.Unmarshal(data, &e); err != nil || !e.OK || e.Tier != "SIMPLE" || e.Provider != "onprem" || e.In != 1_000_000 || e.Cost < 1 {
+		t.Fatalf("usage entry = %+v %v", e, err)
+	}
+
+	cfg := r.Config()
+	cfg.Tiers = map[string][]string{"SIMPLE": {"sdc/claude-haiku-4-5"}}
+	r.Update(cfg)
+	resp, _ := r.Execute(context.Background(), ask("fix typo", ""))
+	if resp.Model != "sdc/claude-haiku-4-5" {
+		t.Fatalf("after update -> %s", resp.Model)
 	}
 }
 
