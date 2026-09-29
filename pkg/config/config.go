@@ -67,6 +67,20 @@ type SmartConfig struct {
 	AllowedFails              int                 `yaml:"allowed_fails" json:"allowed_fails"`
 	CooldownSeconds           int                 `yaml:"cooldown_seconds" json:"cooldown_seconds"`
 	Tiers                     map[string][]string `yaml:"tiers" json:"tiers"`
+	Budgets                   map[string]BudgetConfig `yaml:"budgets" json:"budgets"`
+}
+
+// BudgetConfig caps estimated spend for one provider over a rolling window.
+// Prices are per 1M tokens: [input, output, cache_read, cache_write].
+// TierWeights split Limit between tiers; tiers without a weight share nothing
+// when weights are set, and everything when no weights are set.
+type BudgetConfig struct {
+	Limit        float64              `yaml:"limit" json:"limit"`
+	Currency     string               `yaml:"currency" json:"currency"`
+	PeriodDays   int                  `yaml:"period_days" json:"period_days"`
+	TierWeights  map[string]float64   `yaml:"tier_weights" json:"tier_weights"`
+	Prices       map[string][]float64 `yaml:"prices" json:"prices"`
+	DefaultPrice []float64            `yaml:"default_price" json:"default_price"`
 }
 
 // ClassifierConfig selects how requests are assigned a tier.
@@ -250,6 +264,15 @@ func applySmartDefaults(s *SmartConfig) {
 	}
 	if s.CooldownSeconds <= 0 {
 		s.CooldownSeconds = 300
+	}
+	for name, b := range s.Budgets {
+		if b.PeriodDays <= 0 {
+			b.PeriodDays = 30
+		}
+		if b.Currency == "" {
+			b.Currency = "USD"
+		}
+		s.Budgets[name] = b
 	}
 	c := &s.Classifier
 	if url := os.Getenv("LAYA_URL"); url != "" && c.URL == "" {

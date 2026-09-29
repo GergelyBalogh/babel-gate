@@ -104,6 +104,24 @@ providers:
 #     MEDIUM:    ["copilot/gpt-5-mini", "onprem/qwen-3.6-27b"]
 #     COMPLEX:   ["copilot/claude-sonnet-5", "sdc/claude-sonnet-5"]
 #     REASONING: ["copilot/claude-opus-5.5", "sdc/claude-opus-5"]
+#   # Optional local spend caps (estimates from token usage; stored in database.path).
+#   # A target whose provider has used up its share for the tier is skipped.
+#   budgets:
+#     copilot:
+#       limit: 30                      # per period_days
+#       currency: USD
+#       period_days: 30
+#       tier_weights: { REASONING: 0.6, COMPLEX: 0.3, MEDIUM: 0.07, SIMPLE: 0.03 }
+#       default_price: [3, 15, 0.3, 3.75]   # per 1M tokens: input, output, cache read, cache write
+#       prices:
+#         claude-opus-5.5: [4, 20, 0.2, 5]
+#         claude-sonnet-5: [3, 15, 0.3, 3.75]
+#         claude-haiku-4.5: [1, 5, 0.1, 1.25]
+#     sdc:
+#       limit: 0                       # 0 = track spend only, never block
+#       currency: EUR
+#       prices:
+#         claude-opus-5: [4.35, 21.75, 0.435, 5.438]
 
 # Optional: model aliases if you want custom shortcuts
 # routing:

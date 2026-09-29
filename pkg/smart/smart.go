@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vogler75/babel-gate/pkg/budget"
 	"github.com/vogler75/babel-gate/pkg/canonical"
 	"github.com/vogler75/babel-gate/pkg/classifier"
 	"github.com/vogler75/babel-gate/pkg/config"
@@ -56,6 +57,7 @@ type Router struct {
 	now          func() time.Time
 
 	mu        sync.Mutex
+	budget    *budget.Tracker
 	pins      map[string]pin
 	health    map[string]*health
 	decisions []Decision
@@ -229,10 +231,43 @@ func (r *Router) Decisions() []Decision {
 	return append([]Decision(nil), r.decisions...)
 }
 
-func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalRequest, call func(providers.Provider, *canonical.CanonicalRequest) (T, error)) (T, error) {
+// SetBudget attaches a spend tracker. Targets whose provider has exhausted
+// the budget for the target's tier are skipped.
+func (r *Router) SetBudget(b *budget.Tracker) {
+	r.mu.Lock()
+	r.budget = b
+	r.mu.Unlock()
+}
+
+func (r *Router) Budget() *budget.Tracker {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.budget
+}
+
+// tierOf returns the first tier (in candidate order for requested) that
+// lists target; spend is charged against that tier's share.
+func (r *Router) tierOf(requested classifier.Tier, target string) classifier.Tier {
+	idx := requested.Index()
+	order := append([]classifier.Tier(nil), classifier.Tiers[idx:]...)
+	for i := idx - 1; i >= 0; i-- {
+		order = append(order, classifier.Tiers[i])
+	}
+	for _, t := range order {
+		for _, x := range r.tiers[t] {
+			if x == target {
+				return t
+			}
+		}
+	}
+	return requested
+}
+
+func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalRequest, call func(providers.Provider, *canonical.CanonicalRequest, func(canonical.Usage)) (T, error)) (T, error) {
 	var zero T
 	res, tier, pinned, ask := r.decide(ctx, req)
 	d := Decision{Time: r.now(), Session: req.SessionID, Result: res, Tier: tier, Pinned: pinned, Ask: ask}
+	tracker := r.Budget()
 
 	targets := r.candidates(tier)
 	if len(targets) == 0 {
@@ -260,9 +295,16 @@ func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalReq
 				lastErr = err
 				continue
 			}
+			chargeTier := string(r.tierOf(tier, target))
+			if !tracker.Allowed(prov.Name(), chargeTier) {
+				d.Skipped = append(d.Skipped, target+" (budget)")
+				continue
+			}
 			targetReq := *req
 			targetReq.Model = model
-			out, err := call(prov, &targetReq)
+			provName := prov.Name()
+			onUsage := func(u canonical.Usage) { tracker.Record(provName, model, chargeTier, u) }
+			out, err := call(prov, &targetReq, onUsage)
 			r.report(target, err)
 			if err != nil {
 				d.Skipped = append(d.Skipped, target+" (error)")
@@ -294,13 +336,58 @@ func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalReq
 }
 
 func (r *Router) Execute(ctx context.Context, req *canonical.CanonicalRequest) (*canonical.CanonicalResponse, error) {
-	return dispatch(r, ctx, req, func(p providers.Provider, q *canonical.CanonicalRequest) (*canonical.CanonicalResponse, error) {
-		return p.Execute(ctx, q)
+	return dispatch(r, ctx, req, func(p providers.Provider, q *canonical.CanonicalRequest, onUsage func(canonical.Usage)) (*canonical.CanonicalResponse, error) {
+		resp, err := p.Execute(ctx, q)
+		if err == nil && resp != nil {
+			onUsage(resp.Usage)
+		}
+		return resp, err
 	})
 }
 
 func (r *Router) Stream(ctx context.Context, req *canonical.CanonicalRequest) (<-chan canonical.CanonicalEvent, error) {
-	return dispatch(r, ctx, req, func(p providers.Provider, q *canonical.CanonicalRequest) (<-chan canonical.CanonicalEvent, error) {
-		return p.Stream(ctx, q)
+	return dispatch(r, ctx, req, func(p providers.Provider, q *canonical.CanonicalRequest, onUsage func(canonical.Usage)) (<-chan canonical.CanonicalEvent, error) {
+		in, err := p.Stream(ctx, q)
+		if err != nil {
+			return nil, err
+		}
+		out := make(chan canonical.CanonicalEvent)
+		go func() {
+			defer close(out)
+			var usage canonical.Usage
+			seen := false
+			for ev := range in {
+				if ev.Usage != nil {
+					usage = mergeUsage(usage, *ev.Usage)
+					seen = true
+				}
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					for range in {
+					}
+					if seen {
+						onUsage(usage)
+					}
+					return
+				}
+			}
+			if seen {
+				onUsage(usage)
+			}
+		}()
+		return out, nil
 	})
+}
+
+// mergeUsage keeps the largest value seen for each counter, since providers
+// report cumulative usage across message_start / message_delta events.
+func mergeUsage(a, b canonical.Usage) canonical.Usage {
+	a.PromptTokens = max(a.PromptTokens, b.PromptTokens)
+	a.CompletionTokens = max(a.CompletionTokens, b.CompletionTokens)
+	a.TotalTokens = max(a.TotalTokens, b.TotalTokens)
+	a.CacheReadInputTokens = max(a.CacheReadInputTokens, b.CacheReadInputTokens)
+	a.CacheCreationInputTokens = max(a.CacheCreationInputTokens, b.CacheCreationInputTokens)
+	a.ReasoningTokens = max(a.ReasoningTokens, b.ReasoningTokens)
+	return a
 }

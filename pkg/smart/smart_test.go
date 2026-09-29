@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vogler75/babel-gate/pkg/budget"
 	"github.com/vogler75/babel-gate/pkg/canonical"
 	"github.com/vogler75/babel-gate/pkg/config"
 	"github.com/vogler75/babel-gate/pkg/providers"
@@ -17,6 +18,7 @@ type fakeProvider struct {
 	name  string
 	fail  bool
 	calls []string
+	usage canonical.Usage
 }
 
 func (f *fakeProvider) Name() string     { return f.name }
@@ -27,13 +29,16 @@ func (f *fakeProvider) Execute(_ context.Context, req *canonical.CanonicalReques
 	if f.fail {
 		return nil, errors.New("boom")
 	}
-	return &canonical.CanonicalResponse{Model: f.name + "/" + req.Model}, nil
+	return &canonical.CanonicalResponse{Model: f.name + "/" + req.Model, Usage: f.usage}, nil
 }
 func (f *fakeProvider) Stream(ctx context.Context, req *canonical.CanonicalRequest) (<-chan canonical.CanonicalEvent, error) {
 	if _, err := f.Execute(ctx, req); err != nil {
 		return nil, err
 	}
-	ch := make(chan canonical.CanonicalEvent)
+	ch := make(chan canonical.CanonicalEvent, 2)
+	u := f.usage
+	ch <- canonical.CanonicalEvent{Type: canonical.EventMessageStart, Usage: &canonical.Usage{PromptTokens: u.PromptTokens}}
+	ch <- canonical.CanonicalEvent{Type: canonical.EventMessageDelta, Usage: &u}
 	close(ch)
 	return ch, nil
 }
@@ -124,6 +129,51 @@ func TestSessionAffinityNeverDowngrades(t *testing.T) {
 	resp, _ = r.Execute(context.Background(), ask("thanks", "s2"))
 	if resp.Model != "onprem/gpt-oss-120b" {
 		t.Fatalf("other session unaffected, got %s", resp.Model)
+	}
+}
+
+func TestBudgetSkipsExhaustedProvider(t *testing.T) {
+	r, provs := setup(t)
+	tr := budget.New(map[string]config.BudgetConfig{
+		"copilot": {Limit: 1, PeriodDays: 30, TierWeights: map[string]float64{"REASONING": 1}, DefaultPrice: []float64{1, 1}},
+	})
+	r.SetBudget(tr)
+
+	provs["copilot"].usage = canonical.Usage{PromptTokens: 2_000_000}
+	resp, _ := r.Execute(context.Background(), ask("ultrathink", ""))
+	if resp.Model != "copilot/claude-opus-5.5" {
+		t.Fatalf("first -> %s", resp.Model)
+	}
+	resp, _ = r.Execute(context.Background(), ask("ultrathink", ""))
+	if resp.Model != "sdc/claude-opus-5-5" {
+		t.Fatalf("budget exhausted -> %s", resp.Model)
+	}
+
+	ch, err := r.Stream(context.Background(), ask("ultrathink", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	d := r.Decisions()
+	if last := d[len(d)-1]; last.Target != "sdc/claude-opus-5-5" || len(last.Skipped) == 0 {
+		t.Fatalf("decision = %+v", last)
+	}
+}
+
+func TestStreamRecordsUsage(t *testing.T) {
+	r, provs := setup(t)
+	tr := budget.New(map[string]config.BudgetConfig{"onprem": {Limit: 1, DefaultPrice: []float64{1, 1}}})
+	r.SetBudget(tr)
+	provs["onprem"].usage = canonical.Usage{PromptTokens: 2_000_000}
+	ch, err := r.Stream(context.Background(), ask("fix typo", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range ch {
+	}
+	if tr.Allowed("onprem", "SIMPLE") {
+		t.Fatal("stream usage should be recorded")
 	}
 }
 
