@@ -57,16 +57,16 @@ type LoggingConfig struct {
 
 // SmartConfig enables the complexity-based virtual model (see pkg/smart).
 type SmartConfig struct {
-	Enabled                   bool                `yaml:"enabled" json:"enabled"`
-	Model                     string              `yaml:"model" json:"model"`
-	Classifier                ClassifierConfig    `yaml:"classifier" json:"classifier"`
-	Keywords                  []KeywordRuleConfig `yaml:"keywords" json:"keywords"`
-	MinTier                   string              `yaml:"min_tier" json:"min_tier"`
-	DefaultTier               string              `yaml:"default_tier" json:"default_tier"`
-	SessionAffinityTTLSeconds int                 `yaml:"session_affinity_ttl_seconds" json:"session_affinity_ttl_seconds"`
-	AllowedFails              int                 `yaml:"allowed_fails" json:"allowed_fails"`
-	CooldownSeconds           int                 `yaml:"cooldown_seconds" json:"cooldown_seconds"`
-	Tiers                     map[string][]string `yaml:"tiers" json:"tiers"`
+	Enabled                   bool                    `yaml:"enabled" json:"enabled"`
+	Model                     string                  `yaml:"model" json:"model"`
+	Classifier                ClassifierConfig        `yaml:"classifier" json:"classifier"`
+	Keywords                  []KeywordRuleConfig     `yaml:"keywords" json:"keywords"`
+	MinTier                   string                  `yaml:"min_tier" json:"min_tier"`
+	DefaultTier               string                  `yaml:"default_tier" json:"default_tier"`
+	SessionAffinityTTLSeconds int                     `yaml:"session_affinity_ttl_seconds" json:"session_affinity_ttl_seconds"`
+	AllowedFails              int                     `yaml:"allowed_fails" json:"allowed_fails"`
+	CooldownSeconds           int                     `yaml:"cooldown_seconds" json:"cooldown_seconds"`
+	Tiers                     map[string][]string     `yaml:"tiers" json:"tiers"`
 	Budgets                   map[string]BudgetConfig `yaml:"budgets" json:"budgets"`
 }
 
