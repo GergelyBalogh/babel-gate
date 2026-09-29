@@ -90,6 +90,30 @@ func TestRoutesByTierAndClimbsForMissingTier(t *testing.T) {
 	}
 }
 
+func TestSkipsTargetsWithTooSmallContext(t *testing.T) {
+	r, provs := setup(t)
+	cfg := r.Config()
+	cfg.ContextWindows = map[string]int{"onprem/gpt-oss-120b": 1000, "copilot/claude-haiku-4.5": 1000}
+	r.Update(cfg)
+
+	resp, err := r.Execute(context.Background(), ask("fix typo", ""))
+	if err != nil || resp.Model != "onprem/gpt-oss-120b" {
+		t.Fatalf("small prompt -> %v %v", resp, err)
+	}
+	big := "fix typo " + strings.Repeat("x", 8000)
+	resp, err = r.Execute(context.Background(), ask(big, ""))
+	if err != nil || resp.Model != "copilot/claude-sonnet-5" {
+		t.Fatalf("large prompt should skip small windows -> %v %v", resp, err)
+	}
+
+	provs["copilot"].fail = true
+	provs["sdc"].fail = true
+	resp, err = r.Execute(context.Background(), ask(big, ""))
+	if err == nil && resp.Model != "onprem/gpt-oss-120b" {
+		t.Fatalf("too-small targets remain a last resort -> %v", resp)
+	}
+}
+
 func TestFailoverAndCooldown(t *testing.T) {
 	r, provs := setup(t)
 	now := time.Now()

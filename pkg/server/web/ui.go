@@ -143,15 +143,17 @@ func (d *DashboardHandler) HandleAPISmart(w http.ResponseWriter, r *http.Request
 	}
 	cfg := sr.Config()
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"enabled":   true,
-		"model":     sr.Model(),
-		"tiers":     cfg.Tiers,
-		"min_tier":  cfg.MinTier,
-		"default":   cfg.DefaultTier,
-		"decisions": decisions,
-		"budgets":   sr.Budget().Status(),
-		"cooldowns": sr.Cooldowns(),
-		"reloaded":  r.Method == http.MethodPost,
+		"enabled":         true,
+		"model":           sr.Model(),
+		"tiers":           cfg.Tiers,
+		"min_tier":        cfg.MinTier,
+		"default":         cfg.DefaultTier,
+		"decisions":       decisions,
+		"budgets":         sr.Budget().Status(),
+		"cooldowns":       sr.Cooldowns(),
+		"usage_log":       sr.UsageLog(),
+		"context_windows": cfg.ContextWindows,
+		"reloaded":        r.Method == http.MethodPost,
 	})
 }
 

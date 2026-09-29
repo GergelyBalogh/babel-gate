@@ -19,6 +19,7 @@ import (
 	"github.com/vogler75/babel-gate/pkg/config"
 	"github.com/vogler75/babel-gate/pkg/providers"
 	"github.com/vogler75/babel-gate/pkg/server/trace"
+	"github.com/vogler75/babel-gate/pkg/session"
 )
 
 const DefaultModel = "smart-router"
@@ -339,9 +340,21 @@ func (r *Router) Budget() *budget.Tracker {
 
 // SetUsageLog enables appending one JSON line per smart request to path.
 func (r *Router) SetUsageLog(path string) {
+	if path != "" {
+		if abs, err := filepath.Abs(path); err == nil {
+			path = abs
+		}
+	}
 	r.logMu.Lock()
 	r.logPath = path
 	r.logMu.Unlock()
+}
+
+// UsageLog returns the absolute path of the usage log, or "" when disabled.
+func (r *Router) UsageLog() string {
+	r.logMu.Lock()
+	defer r.logMu.Unlock()
+	return r.logPath
 }
 
 func (r *Router) logUsage(e UsageEntry) {
@@ -383,18 +396,29 @@ func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalReq
 	if len(targets) == 0 {
 		return fail(fmt.Errorf("smart router: no targets configured"))
 	}
+	need := requiredContext(req)
 	var lastErr error
-	var cooling []string
-	for pass := 0; pass < 2; pass++ {
+	var cooling, tooSmall []string
+	for pass := 0; pass < 3; pass++ {
 		list := targets
-		if pass == 1 {
+		switch pass {
+		case 1:
 			list = cooling
+		case 2:
+			list = tooSmall
 		}
 		for _, target := range list {
-			if pass == 0 && !r.available(target) {
-				cooling = append(cooling, target)
-				d.Skipped = append(d.Skipped, target+" (cooldown)")
-				continue
+			if pass == 0 {
+				if w := s.cfg.ContextWindows[target]; w > 0 && need > w {
+					tooSmall = append(tooSmall, target)
+					d.Skipped = append(d.Skipped, fmt.Sprintf("%s (context %d>%d)", target, need, w))
+					continue
+				}
+				if !r.available(target) {
+					cooling = append(cooling, target)
+					d.Skipped = append(d.Skipped, target+" (cooldown)")
+					continue
+				}
 			}
 			prov, model, err := r.resolve(target)
 			if err != nil {
@@ -446,6 +470,16 @@ func dispatch[T any](r *Router, ctx context.Context, req *canonical.CanonicalReq
 		lastErr = fmt.Errorf("smart router: all targets are unavailable")
 	}
 	return fail(lastErr)
+}
+
+// requiredContext estimates the context window a request needs: prompt tokens
+// plus the requested output budget.
+func requiredContext(req *canonical.CanonicalRequest) int {
+	need := session.EstimateRequestTokens(req)
+	if req.Params.MaxTokens != nil {
+		need += *req.Params.MaxTokens
+	}
+	return need
 }
 
 func unixSeconds(t time.Time) float64 {

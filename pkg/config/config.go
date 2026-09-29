@@ -67,6 +67,7 @@ type SmartConfig struct {
 	AllowedFails              int                     `yaml:"allowed_fails" json:"allowed_fails"`
 	CooldownSeconds           int                     `yaml:"cooldown_seconds" json:"cooldown_seconds"`
 	Tiers                     map[string][]string     `yaml:"tiers" json:"tiers"`
+	ContextWindows            map[string]int          `yaml:"context_windows" json:"context_windows"`
 	Budgets                   map[string]BudgetConfig `yaml:"budgets" json:"budgets"`
 	UsageLog                  string                  `yaml:"usage_log" json:"usage_log"`
 }

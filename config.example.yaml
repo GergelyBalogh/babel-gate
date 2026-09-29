@@ -108,6 +108,12 @@ providers:
 #     # Sonnet 5.5 is not yet served (Copilot: model_not_supported, SDC: 404 as of 2026-09-29).
 #     # Once live, prepend it: ["copilot/claude-sonnet-5.5", "sdc/claude-sonnet-5-5", ...]
 #     REASONING: ["copilot/claude-opus-5.5", "sdc/claude-opus-5"]
+#   # Optional context windows (tokens). A target is skipped while the estimated
+#   # prompt + max_tokens exceeds its window; it stays a last resort if nothing fits.
+#   # This lets clients use a large window (e.g. Claude Code) without small models failing.
+#   context_windows:
+#     onprem/gpt-oss-120b: 131072
+#     copilot/claude-haiku-4.5: 200000
 #   # Optional local spend caps (estimates from token usage; stored in database.path).
 #   # A target whose provider has used up its share for the tier is skipped.
 #   budgets:
